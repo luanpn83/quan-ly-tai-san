@@ -89,8 +89,8 @@ def main():
 
         conn = sqlite3.connect('he_thong_quan_ly.db')
 
-        if choice == "📋 Danh sách tài sản":
-            st.title("📋 Danh mục tài sản & QR Code")
+        if choice == "📋 Danh mục tài sản":
+            st.title("📋 Danh mục tài sản")
             df = pd.read_sql_query("SELECT * FROM assets", conn)
             
             if not df.empty:
@@ -173,3 +173,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
