@@ -1,0 +1,7 @@
+streamlit
+pandas
+streamlit-authenticator
+qrcode
+pillow
+xlsxwriter
+plotly
