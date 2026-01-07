@@ -9,7 +9,7 @@ from datetime import datetime
 
 # --- 1. KHỞI TẠO CƠ SỞ DỮ LIỆU ---
 def init_db():
-    conn = sqlite3.connect('he_thong_quan_ly_v2.db')
+    conn = sqlite3.connect('he_thong_quan_ly.db')
     c = conn.cursor()
     # Bảng tài sản
     c.execute('''CREATE TABLE IF NOT EXISTS assets 
@@ -196,6 +196,7 @@ def main():
 if __name__ == '__main__':
 
     main()
+
 
 
 
