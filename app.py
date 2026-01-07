@@ -30,7 +30,15 @@ def init_db():
         c.execute("INSERT INTO users VALUES ('admin', 'Quản trị viên', ?, 'admin')", (hashed_pw,))
     conn.commit()
     conn.close()
-
+    @st.cache_resource
+    def get_authenticator(config):
+        # Dùng cache_resource để đảm bảo Authenticate chỉ được tạo 1 lần duy nhất
+        return stauth.Authenticate(
+            config,
+            'asset_cookie',
+            'auth_key',
+            cookie_expiry_days=1
+        )
 # --- 2. CÁC HÀM TIỆN ÍCH ---
 def fetch_users_config():
     init_db()
@@ -74,17 +82,12 @@ def main():
     st.set_page_config(page_title="Quản Lý Tài Sản Pro", layout="wide")
     init_db()
 
-    # 1. Khởi tạo bộ xác thực
     config = fetch_users_config()
-    authenticator = stauth.Authenticate(
-        credentials=config,          # config chứa 'usernames'
-        cookie_name='asset_cookie',
-        cookie_key='auth_key',
-        cookie_expiry_days=1,
-        key='unique_auth_key'        # Khắc phục lỗi Duplicate Element Key
-    )
+    
+    # Gọi hàm đã có cache thay vì khởi tạo trực tiếp
+    authenticator = get_authenticator(config)
 
-    # 2. Gọi hàm login (Cấu trúc mới của bản 0.3.0+)
+    # Thực hiện login
     authenticator.login(location='main')
 
     # 3. Kiểm tra trạng thái từ session_state
@@ -197,6 +200,7 @@ def main():
 if __name__ == '__main__':
 
     main()
+
 
 
 
