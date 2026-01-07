@@ -72,11 +72,11 @@ def show_public_details(asset_id):
 def main():
     st.set_page_config(page_title="Quản Lý Tài Sản Pro", layout="wide")
     init_db()
-st.write(config) # Dòng này sẽ hiện cấu trúc dữ liệu lên web để bạn đối soát
+
     # 1. Khởi tạo bộ xác thực
     config = fetch_users_config()
-   authenticator = stauth.Authenticate(
-        config,             Truyền cả config (trong đó đã có sẵn key 'usernames')
+    authenticator = stauth.Authenticate(
+        config,        #Truyền cả config (trong đó đã có sẵn key 'usernames')
         'asset_cookie',
         'auth_key',
         cookie_expiry_days=1
@@ -195,6 +195,7 @@ st.write(config) # Dòng này sẽ hiện cấu trúc dữ liệu lên web để
 if __name__ == '__main__':
 
     main()
+
 
 
 
