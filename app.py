@@ -66,6 +66,34 @@ def main():
     st.set_page_config(page_title="Quản Lý Tài Sản Pro", layout="wide")
     init_db()
 
+    # 1. Khởi tạo bộ xác thực
+    config = fetch_users_config()
+    authenticator = stauth.Authenticate(
+        config['usernames'],
+        'asset_cookie',
+        'auth_key',
+        cookie_expiry_days=1
+    )
+
+    # 2. Gọi hàm login (Cấu trúc mới của bản 0.3.0+)
+    authenticator.login(location='main')
+
+    # 3. Kiểm tra trạng thái từ session_state
+    if st.session_state["authentication_status"]:
+        name = st.session_state["name"]
+        username = st.session_state["username"]
+        role = config['usernames'][username]['role']
+        
+        st.sidebar.title(f"Chào {name}")
+        authenticator.logout('Đăng xuất', 'sidebar')
+        
+        # ... (Phần menu và các tính năng khác giữ nguyên) ...
+
+    elif st.session_state["authentication_status"] is False:
+        st.error('Sai tài khoản hoặc mật khẩu')
+    elif st.session_state["authentication_status"] is None:
+        st.warning('Vui lòng đăng nhập để sử dụng hệ thống.')
+
     # Kiểm tra truy cập qua QR (không cần login)
     if "id" in st.query_params:
         show_public_details(st.query_params["id"])
@@ -160,4 +188,5 @@ def main():
 if __name__ == '__main__':
 
     main()
+
 
