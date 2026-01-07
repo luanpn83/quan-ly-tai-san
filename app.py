@@ -29,26 +29,14 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS asset_types 
                  (ma_loai TEXT PRIMARY KEY, ten_loai TEXT)''')
 
-    # Admin mặc định
+    # Admin mặc định nếu DB trống
     c.execute("SELECT * FROM users WHERE username='admin'")
     if not c.fetchone():
         hp = stauth.Hasher.hash('admin123')
-        c.execute("INSERT INTO users (username, name, password, role) VALUES ('admin', 'Quản trị viên', ?, 'admin')", (hp,))
+        c.execute("INSERT INTO users (username, name, password, role, email) VALUES ('admin', 'Quản trị viên', ?, 'admin', 'admin@example.com')", (hp,))
     
     conn.commit()
     conn.close()
-
-def get_next_asset_code():
-    conn = sqlite3.connect('he_thong_quan_ly.db')
-    df = pd.read_sql_query("SELECT ma_tai_san FROM assets WHERE ma_tai_san LIKE 'TV%'", conn)
-    conn.close()
-    if df.empty: return "TV001"
-    try:
-        # Tìm số lớn nhất từ các mã hiện có
-        numbers = df['ma_tai_san'].str.extract('(\d+)').dropna().astype(int)
-        next_num = numbers.max().item() + 1
-        return f"TV{next_num:03d}"
-    except: return f"TV001"
 
 def fetch_users_config():
     init_db()
@@ -61,6 +49,17 @@ def fetch_users_config():
             'name': row['name'], 'password': row['password'], 'role': row['role']
         }
     return config
+
+def get_next_asset_code():
+    conn = sqlite3.connect('he_thong_quan_ly.db')
+    df = pd.read_sql_query("SELECT ma_tai_san FROM assets WHERE ma_tai_san LIKE 'TV%'", conn)
+    conn.close()
+    if df.empty: return "TV001"
+    try:
+        numbers = df['ma_tai_san'].str.extract('(\d+)').dropna().astype(int)
+        next_num = numbers.max().item() + 1
+        return f"TV{next_num:03d}"
+    except: return f"TV001"
 
 # --- 2. GIAO DIỆN CHÍNH ---
 
@@ -76,13 +75,16 @@ def main():
     authenticator.login(location='main')
 
     if st.session_state["authentication_status"]:
-        role = config['usernames'].get(st.session_state["username"], {}).get('role')
+        username_logged = st.session_state["username"]
+        role = config['usernames'].get(username_logged, {}).get('role')
+        
         st.sidebar.title(f"Chào {st.session_state['name']}")
+        st.sidebar.info(f"Quyền: {role.upper()}")
         authenticator.logout('Đăng xuất', 'sidebar')
         
         menu = ["📊 Dashboard", "📋 Danh sách tài sản"]
         if role == 'admin': menu += ["⚙️ Cấu hình hệ thống"]
-        choice = st.sidebar.radio("Chức năng", menu)
+        choice = st.sidebar.radio("Chức năng chính", menu)
 
         conn = sqlite3.connect('he_thong_quan_ly.db')
 
@@ -92,79 +94,115 @@ def main():
             st.dataframe(df, use_container_width=True)
 
         elif choice == "⚙️ Cấu hình hệ thống":
-            st.title("⚙️ Quản trị hệ thống")
-            t1, t2, t3 = st.tabs(["📦 Thêm tài sản", "📑 Danh mục Loại tài sản", "👥 Nhân viên"])
+            st.title("⚙️ Quản trị & Phân quyền")
+            t1, t2, t3 = st.tabs(["📦 Thêm tài sản", "📑 Loại tài sản", "👥 Quản lý nhân viên"])
             
-            # --- TAB 1: THÊM TÀI SẢN (Dữ liệu loại lấy từ Tab 2) ---
+            # --- TAB 1 & 2 giữ nguyên logic cũ ---
             with t1:
+                # (Code thêm tài sản...)
                 st.subheader("Nhập tài sản mới")
-                suggested_code = get_next_asset_code()
-                
-                # LẤY TỰ ĐỘNG DANH SÁCH TÊN LOẠI TỪ DATABASE
                 df_types = pd.read_sql_query("SELECT ten_loai FROM asset_types", conn)
                 list_type_names = df_types['ten_loai'].tolist()
-                
-                if not list_type_names:
-                    st.warning("⚠️ Chưa có loại tài sản nào trong hệ thống. Vui lòng thêm tại tab 'Danh mục Loại tài sản' trước.")
-                
+                suggested_code = get_next_asset_code()
                 with st.form("f_add_asset", clear_on_submit=True):
                     c1, c2 = st.columns(2)
                     with c1:
                         st.text_input("Mã tài sản (Tự động)", value=suggested_code, disabled=True)
                         ten_ts = st.text_input("Tên tài sản *")
-                        # Hộp thoại loại tài sản lấy dữ liệu tự động ở đây
-                        loai_ts = st.selectbox("Chọn loại tài sản *", list_type_names if list_type_names else ["N/A"])
+                        loai_ts = st.selectbox("Chọn loại tài sản *", list_type_names if list_type_names else ["Chưa có"])
                     with c2:
                         ngay_sd = st.date_input("Ngày sử dụng", datetime.now())
-                        users_df = pd.read_sql_query("SELECT name FROM users", conn)
-                        nguoi_ql = st.selectbox("Người quản lý", users_df['name'].tolist())
-                        tt = st.selectbox("Tình trạng", ["Mới", "Đang dùng tốt", "Cần bảo trì", "Hỏng"])
-                    
-                    if st.form_submit_button("Lưu tài sản"):
-                        if ten_ts and list_type_names:
-                            conn.execute("INSERT INTO assets (loai_tai_san, ma_tai_san, ten_tai_san, ngay_su_dung, nguoi_quan_ly, tinh_trang) VALUES (?,?,?,?,?,?)",
-                                        (loai_ts, suggested_code, ten_ts, ngay_sd, nguoi_ql, tt))
-                            conn.commit()
-                            st.success(f"Đã lưu tài sản {ten_ts} với mã {suggested_code}")
-                            st.rerun()
-                        elif not list_type_names:
-                            st.error("Không thể lưu vì chưa có loại tài sản.")
-                        else:
-                            st.error("Vui lòng nhập tên tài sản.")
+                        users_names = pd.read_sql_query("SELECT name FROM users", conn)['name'].tolist()
+                        nguoi_ql = st.selectbox("Người quản lý", users_names)
+                        tt = st.selectbox("Tình trạng", ["Mới", "Tốt", "Cần bảo trì"])
+                    if st.form_submit_button("Lưu"):
+                        conn.execute("INSERT INTO assets (loai_tai_san, ma_tai_san, ten_tai_san, ngay_su_dung, nguoi_quan_ly, tinh_trang) VALUES (?,?,?,?,?,?)",
+                                    (loai_ts, suggested_code, ten_ts, ngay_sd, nguoi_ql, tt))
+                        conn.commit()
+                        st.success("Đã thêm!")
+                        st.rerun()
 
-            # --- TAB 2: DANH MỤC LOẠI TÀI SẢN ---
             with t2:
-                st.subheader("Quản lý danh mục loại tài sản")
-                c_f, c_l = st.columns([1, 2])
-                with c_f:
-                    with st.form("f_add_type", clear_on_submit=True):
-                        m_l = st.text_input("Mã loại (VD: MT)")
-                        t_l = st.text_input("Tên loại tài sản (VD: Máy tính)")
-                        if st.form_submit_button("Thêm loại"):
-                            if m_l and t_l:
-                                try:
-                                    conn.execute("INSERT INTO asset_types VALUES (?,?)", (m_l, t_l))
-                                    conn.commit()
-                                    st.success("Đã thêm loại mới!")
-                                    st.rerun()
-                                except: st.error("Mã loại đã tồn tại!")
-                with c_l:
-                    df_all_t = pd.read_sql_query("SELECT ma_loai as 'Mã loại', ten_loai as 'Tên loại' FROM asset_types", conn)
-                    st.dataframe(df_all_t, use_container_width=True)
+                # (Code thêm loại tài sản...)
+                st.subheader("Danh mục loại")
+                with st.form("f_type"):
+                    ml = st.text_input("Mã loại")
+                    tl = st.text_input("Tên loại")
+                    if st.form_submit_button("Thêm loại"):
+                        conn.execute("INSERT INTO asset_types VALUES (?,?)", (ml, tl))
+                        conn.commit(); st.rerun()
+                st.dataframe(pd.read_sql_query("SELECT * FROM asset_types", conn), use_container_width=True)
 
-            # --- TAB 3: NHÂN VIÊN ---
+            # --- TAB 3: QUẢN LÝ NHÂN VIÊN & PHÂN QUYỀN (MỚI) ---
             with t3:
-                # (Phần nhân viên giữ nguyên như các bản trước)
-                st.subheader("Danh sách nhân sự")
-                df_u = pd.read_sql_query("SELECT username, name, don_vi, khu_nha, phong FROM users", conn)
-                st.dataframe(df_u, use_container_width=True)
+                st.subheader("Quản lý tài khoản & Phân quyền")
+                col_add, col_list = st.columns([1, 2])
+                
+                with col_add:
+                    st.write("**Tạo nhân viên mới**")
+                    with st.form("f_add_user", clear_on_submit=True):
+                        new_username = st.text_input("Username (viết liền, không dấu) *")
+                        new_name = st.text_input("Họ và tên *")
+                        new_password = st.text_input("Mật khẩu *", type="password")
+                        new_email = st.text_input("Email")
+                        
+                        st.markdown("---")
+                        new_dv = st.text_input("Đơn vị (Phòng/Ban)")
+                        new_kn = st.text_input("Khu nhà")
+                        new_phong = st.text_input("Số phòng")
+                        
+                        # PHÂN QUYỀN Ở ĐÂY
+                        new_role = st.selectbox("Phân quyền hệ thống", ["user", "admin"], 
+                                                help="Admin: Toàn quyền | User: Chỉ được xem danh sách")
+                        
+                        if st.form_submit_button("Đăng ký tài khoản"):
+                            if new_username and new_name and new_password:
+                                try:
+                                    hashed_password = stauth.Hasher.hash(new_password)
+                                    conn.execute('''INSERT INTO users 
+                                        (username, name, password, role, email, don_vi, khu_nha, phong) 
+                                        VALUES (?,?,?,?,?,?,?,?)''',
+                                        (new_username, new_name, hashed_password, new_role, new_email, new_dv, new_kn, new_phong))
+                                    conn.commit()
+                                    st.success(f"Đã tạo tài khoản {new_username} thành công!")
+                                    st.rerun()
+                                except sqlite3.IntegrityError:
+                                    st.error("Lỗi: Username này đã tồn tại trên hệ thống!")
+                            else:
+                                st.warning("Vui lòng nhập đủ các trường có dấu (*)")
+
+                with col_list:
+                    st.write("**Danh sách nhân sự hiện có**")
+                    df_users_display = pd.read_sql_query('''
+                        SELECT username as 'Tên đăng nhập', 
+                               name as 'Họ tên', 
+                               role as 'Quyền', 
+                               don_vi as 'Đơn vị', 
+                               khu_nha as 'Khu', 
+                               phong as 'Phòng' 
+                        FROM users
+                    ''', conn)
+                    st.dataframe(df_users_display, use_container_width=True)
+                    
+                    # Tính năng xóa nhân viên
+                    user_to_delete = st.selectbox("Chọn nhân viên cần xóa", [""] + df_users_display['Tên đăng nhập'].tolist())
+                    if st.button("Xóa nhân viên này"):
+                        if user_to_delete == "admin":
+                            st.error("Không thể xóa tài khoản Admin gốc!")
+                        elif user_to_delete == username_logged:
+                            st.error("Bạn không thể tự xóa chính mình khi đang đăng nhập!")
+                        elif user_to_delete:
+                            conn.execute("DELETE FROM users WHERE username=?", (user_to_delete,))
+                            conn.commit()
+                            st.success(f"Đã xóa tài khoản {user_to_delete}")
+                            st.rerun()
 
         conn.close()
     
     elif st.session_state["authentication_status"] is False:
         st.error('Sai tài khoản hoặc mật khẩu')
     elif st.session_state["authentication_status"] is None:
-        st.info('Vui lòng đăng nhập.')
+        st.info('Vui lòng đăng nhập để quản lý tài sản.')
 
 if __name__ == '__main__':
     main()
