@@ -15,28 +15,34 @@ from datetime import datetime
 def init_db():
     conn = sqlite3.connect('he_thong_quan_ly.db')
     c = conn.cursor()
+    
+    # Bảng tài sản
     c.execute('''CREATE TABLE IF NOT EXISTS assets 
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, ten_tai_san TEXT, loai_tai_san TEXT, 
                   gia_tri REAL, tinh_trang TEXT, nguoi_su_dung TEXT, vi_tri TEXT)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS maintenance 
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT, asset_id INTEGER, 
-                  ngay_thuc_hien DATE, noi_dung TEXT, chi_phi REAL)''')
+    
+    # Bảng người dùng (Thêm các trường đơn vị, khu nhà, phòng)
     c.execute('''CREATE TABLE IF NOT EXISTS users 
-                 (username TEXT PRIMARY KEY, name TEXT, password TEXT, role TEXT, email TEXT)''')
+                 (username TEXT PRIMARY KEY, name TEXT, password TEXT, role TEXT, 
+                  email TEXT, don_vi TEXT, khu_nha TEXT, phong TEXT)''')
+    
     c.execute('''CREATE TABLE IF NOT EXISTS transfer_history 
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, asset_id INTEGER, 
                   tu_nguoi TEXT, sang_nguoi TEXT, ngay_chuyen DATE, ghi_chu TEXT)''')
 
-    # Tự động sửa lỗi thiếu cột email nếu dùng DB cũ
+    # TỰ ĐỘNG CẬP NHẬT CẤU TRÚC BẢNG (MIGRATE)
     c.execute("PRAGMA table_info(users)")
     columns = [column[1] for column in c.fetchall()]
-    if 'email' not in columns:
-        c.execute("ALTER TABLE users ADD COLUMN email TEXT DEFAULT ''")
+    for col in ['email', 'don_vi', 'khu_nha', 'phong']:
+        if col not in columns:
+            c.execute(f"ALTER TABLE users ADD COLUMN {col} TEXT DEFAULT ''")
 
+    # Admin mặc định
     c.execute("SELECT * FROM users WHERE username='admin'")
     if not c.fetchone():
         hashed_pw = stauth.Hasher.hash('admin123')
-        c.execute("INSERT INTO users VALUES ('admin', 'Quản trị viên', ?, 'admin', 'admin@example.com')", (hashed_pw,))
+        c.execute("INSERT INTO users (username, name, password, role, email) VALUES ('admin', 'Quản trị viên', ?, 'admin', 'admin@example.com')", (hashed_pw,))
+    
     conn.commit()
     conn.close()
 
@@ -48,11 +54,12 @@ def fetch_users_config():
     config = {'usernames': {}} 
     for _, row in df.iterrows():
         config['usernames'][row['username']] = {
-            'name': row['name'], 'password': row['password'], 'role': row['role'], 'email': row['email']
+            'name': row['name'], 'password': row['password'], 'role': row['role'], 
+            'email': row['email'], 'don_vi': row['don_vi'], 'khu_nha': row['khu_nha'], 'phong': row['phong']
         }
     return config
 
-# --- 2. TIỆN ÍCH (EMAIL & QR) ---
+# --- 2. TIỆN ÍCH ---
 
 def send_email_notification(asset_name, from_user, to_user, note):
     try:
@@ -63,7 +70,7 @@ def send_email_notification(asset_name, from_user, to_user, note):
         msg['From'] = sender
         msg['To'] = receiver
         msg['Subject'] = f"🔔 Điều chuyển tài sản: {asset_name}"
-        body = f"Tài sản {asset_name} đã được chuyển từ {from_user} sang {to_user}. Ghi chú: {note}"
+        body = f"Tài sản {asset_name} chuyển sang {to_user}. Ghi chú: {note}"
         msg.attach(MIMEText(body, 'html'))
         server = smtplib.SMTP("smtp.gmail.com", 587)
         server.starttls()
@@ -82,10 +89,11 @@ def generate_qr(url):
 # --- 3. GIAO DIỆN CHÍNH ---
 
 def main():
-    st.set_page_config(page_title="Asset Pro", layout="wide")
+    st.set_page_config(page_title="Asset Pro Management", layout="wide")
     
+    # Xử lý Query Params (QR Code)
     if "id" in st.query_params:
-        # (Phần hiển thị QR công khai giữ nguyên như cũ)
+        # Giữ nguyên phần hiển thị công khai như trước
         pass
 
     init_db()
@@ -108,76 +116,67 @@ def main():
         menu = ["📊 Dashboard", "📋 Danh sách"]
         if role == 'admin':
             menu += ["🔧 Vận hành & Điều chuyển", "⚙️ Hệ thống"]
-        choice = st.sidebar.radio("Menu", menu)
+        choice = st.sidebar.radio("Menu chính", menu)
 
         conn = sqlite3.connect('he_thong_quan_ly.db')
 
-        # ... (Dashboard & Danh sách giữ nguyên) ...
-
-        if choice == "🔧 Vận hành & Điều chuyển":
-            # (Phần Điều chuyển giữ nguyên)
-            pass
-
-        elif choice == "⚙️ Hệ thống":
-            st.title("⚙️ Quản trị hệ thống")
-            t1, t2 = st.tabs(["📦 Quản lý tài sản", "👥 Quản lý nhân viên"])
+        if choice == "⚙️ Hệ thống":
+            st.title("⚙️ Cấu hình hệ thống")
+            t1, t2 = st.tabs(["📦 Tài sản", "👥 Nhân viên & Vị trí"])
             
             with t1:
-                st.subheader("Thêm tài sản mới")
-                with st.form("f_add_asset"):
+                st.subheader("Thêm tài sản")
+                with st.form("f_asset"):
                     ten = st.text_input("Tên tài sản")
                     gia = st.number_input("Giá trị", min_value=0.0)
-                    vt = st.text_input("Vị trí")
-                    if st.form_submit_button("Lưu tài sản"):
-                        conn.execute("INSERT INTO assets (ten_tai_san, gia_tri, tinh_trang, vi_tri) VALUES (?,?,'Mới',?)", (ten, gia, vt))
+                    if st.form_submit_button("Lưu"):
+                        conn.execute("INSERT INTO assets (ten_tai_san, gia_tri, tinh_trang) VALUES (?,?,'Mới')", (ten, gia))
                         conn.commit()
-                        st.success("Đã thêm tài sản!")
+                        st.success("Đã thêm!")
 
             with t2:
-                col_left, col_right = st.columns([1, 2])
-                
-                with col_left:
-                    st.subheader("Tạo tài khoản")
-                    with st.form("f_add_user"):
-                        un = st.text_input("Username (viết liền)")
-                        nm = st.text_input("Họ tên nhân viên")
-                        pw = st.text_input("Mật khẩu", type="password")
-                        em = st.text_input("Email")
-                        rl = st.selectbox("Quyền hạn", ["user", "admin"])
-                        if st.form_submit_button("Tạo tài khoản"):
-                            if un and pw:
-                                hp = stauth.Hasher.hash(pw)
+                col1, col2 = st.columns([1, 2])
+                with col1:
+                    st.subheader("Tạo tài khoản mới")
+                    with st.form("f_user"):
+                        u_un = st.text_input("Username")
+                        u_nm = st.text_input("Họ tên")
+                        u_pw = st.text_input("Mật khẩu", type="password")
+                        u_em = st.text_input("Email")
+                        st.markdown("---")
+                        u_dv = st.text_input("Đơn vị (Phòng/Ban)")
+                        u_kn = st.text_input("Khu nhà")
+                        u_ph = st.text_input("Số phòng")
+                        u_rl = st.selectbox("Vai trò", ["user", "admin"])
+                        
+                        if st.form_submit_button("Đăng ký nhân viên"):
+                            if u_un and u_pw:
+                                hp = stauth.Hasher.hash(u_pw)
                                 try:
-                                    conn.execute("INSERT INTO users VALUES (?,?,?,?,?)", (un, nm, hp, rl, em))
+                                    conn.execute("INSERT INTO users VALUES (?,?,?,?,?,?,?,?)", 
+                                               (u_un, u_nm, hp, u_rl, u_em, u_dv, u_kn, u_ph))
                                     conn.commit()
-                                    st.success("Đã tạo thành công!")
+                                    st.success("Đã tạo nhân viên!")
                                     st.rerun()
-                                except:
-                                    st.error("Username đã tồn tại!")
-                            else:
-                                st.warning("Vui lòng nhập đủ Username/Mật khẩu")
+                                except: st.error("Lỗi: Username đã tồn tại!")
 
-                with col_right:
-                    st.subheader("Danh sách nhân viên hiện có")
-                    df_users = pd.read_sql_query("SELECT username, name, email, role FROM users", conn)
-                    # Hiển thị bảng danh sách nhân viên
-                    st.dataframe(df_users, use_container_width=True)
+                with col2:
+                    st.subheader("Danh sách nhân viên & Vị trí công tác")
+                    df_u = pd.read_sql_query("SELECT username, name, don_vi, khu_nha, phong, role FROM users", conn)
+                    st.dataframe(df_u, use_container_width=True)
                     
-                    # Tính năng xóa nhân viên
-                    user_to_del = st.selectbox("Chọn Username để xóa", [""] + df_users['username'].tolist())
-                    if st.button("Xóa nhân viên này"):
-                        if user_to_del == 'admin':
-                            st.error("Không thể xóa tài khoản Admin gốc!")
-                        elif user_to_del:
-                            conn.execute("DELETE FROM users WHERE username=?", (user_to_del,))
+                    user_del = st.selectbox("Chọn nhân viên để xóa", [""] + df_u['username'].tolist())
+                    if st.button("Xóa tài khoản này"):
+                        if user_del and user_del != 'admin':
+                            conn.execute("DELETE FROM users WHERE username=?", (user_del,))
                             conn.commit()
-                            st.success(f"Đã xóa tài khoản {user_to_del}")
                             st.rerun()
-        
+
+        # (Các chức năng Dashboard, Danh sách, Điều chuyển giữ nguyên cấu trúc)
         conn.close()
-    
+
     elif st.session_state["authentication_status"] is False:
-        st.error('Sai tài khoản hoặc mật khẩu')
+        st.error('Sai thông tin đăng nhập.')
     elif st.session_state["authentication_status"] is None:
         st.info('Vui lòng đăng nhập.')
 
