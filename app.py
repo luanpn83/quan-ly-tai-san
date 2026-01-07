@@ -33,6 +33,7 @@ def init_db():
 
 # --- 2. CÁC HÀM TIỆN ÍCH ---
 def fetch_users_config():
+    init_db()
     conn = sqlite3.connect('he_thong_quan_ly.db')
     df = pd.read_sql_query("SELECT * FROM users", conn)
     conn.close()
@@ -196,6 +197,7 @@ def main():
 if __name__ == '__main__':
 
     main()
+
 
 
 
