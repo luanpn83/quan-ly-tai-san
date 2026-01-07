@@ -68,8 +68,8 @@ def main():
 
     # 1. Khởi tạo bộ xác thực
     config = fetch_users_config()
-    authenticator = stauth.Authenticate(
-        config['usernames'],
+   authenticator = stauth.Authenticate(
+        config,             Truyền cả config (trong đó đã có sẵn key 'usernames')
         'asset_cookie',
         'auth_key',
         cookie_expiry_days=1
@@ -188,6 +188,7 @@ def main():
 if __name__ == '__main__':
 
     main()
+
 
 
 
