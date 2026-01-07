@@ -26,7 +26,7 @@ def init_db():
     # Tạo admin mặc định nếu chưa có (Pass: admin123)
     c.execute("SELECT * FROM users WHERE username='admin'")
     if not c.fetchone():
-        hashed_pw = stauth.Hasher(['admin123']).generate()[0]
+        hashed_pw = stauth.Hasher.hash('admin123')
         c.execute("INSERT INTO users VALUES ('admin', 'Quản trị viên', ?, 'admin')", (hashed_pw,))
     conn.commit()
     conn.close()
@@ -151,4 +151,5 @@ def main():
     elif status == None: st.warning('Hãy đăng nhập.')
 
 if __name__ == '__main__':
+
     main()
