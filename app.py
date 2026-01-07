@@ -75,7 +75,14 @@ def main():
     # Hệ thống Đăng nhập
     config = fetch_users_config()
     authenticator = stauth.Authenticate(config, 'asset_cookie', 'auth_key', cookie_expiry_days=1)
-    name, status, username = authenticator.login('main')
+    # Phiên bản mới chỉ cần gọi login(). 
+    # Kết quả trả về có thể khác nhau tùy bản, nhưng an toàn nhất là lấy từ session_state
+    authenticator.login(location='main')
+    
+    if st.session_state["authentication_status"]:
+        name = st.session_state["name"]
+        username = st.session_state["username"]
+        # Tiếp tục code khi đăng nhập thành công...
 
     if status:
         role = config['usernames'][username]['role']
@@ -153,3 +160,4 @@ def main():
 if __name__ == '__main__':
 
     main()
+
