@@ -76,11 +76,11 @@ def main():
     # 1. Khởi tạo bộ xác thực
     config = fetch_users_config()
     authenticator = stauth.Authenticate(
-        config, 
-        'asset_cookie', 
-        'auth_key', 
+        credentials=config,          # config chứa 'usernames'
+        cookie_name='asset_cookie',
+        cookie_key='auth_key',
         cookie_expiry_days=1,
-        key='login_component' # Thêm dòng này để định danh duy nhất
+        key='unique_auth_key'        # Khắc phục lỗi Duplicate Element Key
     )
 
     # 2. Gọi hàm login (Cấu trúc mới của bản 0.3.0+)
@@ -196,6 +196,7 @@ def main():
 if __name__ == '__main__':
 
     main()
+
 
 
 
