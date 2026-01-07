@@ -7,9 +7,10 @@ import streamlit_authenticator as stauth
 from io import BytesIO
 from datetime import datetime
 
-# --- 1. CÁC HÀM KHỞI TẠO (Đặt ở ngoài cùng để tránh lỗi NameError) ---
+# --- 1. CÁC HÀM TIỆN ÍCH & DATABASE ---
 
 def init_db():
+    """Khởi tạo cơ sở dữ liệu và bảng"""
     conn = sqlite3.connect('he_thong_quan_ly.db')
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS assets 
@@ -23,25 +24,15 @@ def init_db():
     
     c.execute("SELECT * FROM users WHERE username='admin'")
     if not c.fetchone():
-        # Sử dụng cú pháp hash mới nhất
+        # Sử dụng phương thức hash mới nhất của bản 0.3.x
         hashed_pw = stauth.Hasher.hash('admin123')
         c.execute("INSERT INTO users VALUES ('admin', 'Quản trị viên', ?, 'admin')", (hashed_pw,))
     conn.commit()
     conn.close()
 
-@st.cache_resource
-def get_authenticator(config):
-    # Dùng cache_resource để tránh lỗi DuplicateElementKey (CookieManager)
-    return stauth.Authenticate(
-        config,
-        'asset_cookie',
-        'auth_key',
-        cookie_expiry_days=1
-    )
-
 def fetch_users_config():
-    # Đảm bảo bảng tồn tại trước khi đọc
-    init_db() 
+    """Lấy cấu hình người dùng từ DB"""
+    init_db()
     conn = sqlite3.connect('he_thong_quan_ly.db')
     df = pd.read_sql_query("SELECT * FROM users", conn)
     conn.close()
@@ -56,12 +47,14 @@ def fetch_users_config():
     return config
 
 def generate_qr(url):
+    """Tạo ảnh QR Code"""
     qr = qrcode.make(url)
     buf = BytesIO()
     qr.save(buf, format="PNG")
     return buf.getvalue()
 
 def show_public_details(asset_id):
+    """Hiển thị chi tiết tài sản cho khách quét QR"""
     conn = sqlite3.connect('he_thong_quan_ly.db')
     asset = pd.read_sql_query(f"SELECT * FROM assets WHERE id={asset_id}", conn)
     history = pd.read_sql_query(f"SELECT * FROM maintenance WHERE asset_id={asset_id}", conn)
@@ -82,7 +75,7 @@ def show_public_details(asset_id):
 def main():
     st.set_page_config(page_title="Quản Lý Tài Sản Pro", layout="wide")
     
-    # Kiểm tra truy cập qua QR (Không cần đăng nhập)
+    # Kiểm tra truy cập qua QR (Xử lý ưu tiên trước khi đăng nhập)
     if "id" in st.query_params:
         show_public_details(st.query_params["id"])
         if st.button("Quay lại trang chủ"):
@@ -90,38 +83,46 @@ def main():
             st.rerun()
         return
 
-    # Khởi tạo DB và lấy cấu hình người dùng
+    # Khởi tạo DB và lấy cấu hình
     init_db()
     config = fetch_users_config()
     
-    # Khởi tạo Authenticator
-    authenticator = get_authenticator(config)
+    # KHỞI TẠO AUTHENTICATOR QUA SESSION STATE (Để tránh lỗi Duplicate Key và Cache Warning)
+    if 'authenticator' not in st.session_state:
+        st.session_state['authenticator'] = stauth.Authenticate(
+            config,
+            'asset_cookie',
+            'auth_key',
+            cookie_expiry_days=1
+        )
+    
+    authenticator = st.session_state['authenticator']
 
-    # Hiển thị form đăng nhập (Chỉ gọi 1 lần duy nhất)
+    # Thực hiện login
     authenticator.login(location='main')
 
-    # Kiểm tra trạng thái đăng nhập từ session_state
+    # Kiểm tra trạng thái đăng nhập
     if st.session_state["authentication_status"]:
         name = st.session_state["name"]
         username = st.session_state["username"]
         role = config['usernames'][username]['role']
         
         st.sidebar.title(f"Chào {name}")
-        st.sidebar.write(f"Quyền: {role}")
+        st.sidebar.write(f"Quyền hạn: **{role.upper()}**")
         authenticator.logout('Đăng xuất', 'sidebar')
         
-        # Menu điều hướng
+        # Menu phân quyền
         if role == 'admin':
             menu = ["📊 Dashboard", "📋 Danh sách", "🔧 Bảo trì & QR", "⚙️ Hệ thống"]
         else:
             menu = ["📊 Dashboard", "📋 Danh sách"]
-        
         choice = st.sidebar.radio("Chức năng", menu)
 
+        # Kết nối DB cho các chức năng
         conn = sqlite3.connect('he_thong_quan_ly.db')
-
+        
         if choice == "📊 Dashboard":
-            st.title("Báo cáo tài sản")
+            st.title("📈 Dashboard Báo Cáo")
             df_assets = pd.read_sql_query("SELECT * FROM assets", conn)
             if not df_assets.empty:
                 c1, c2, c3 = st.columns(3)
@@ -129,58 +130,64 @@ def main():
                 c2.metric("Tổng giá trị", f"{df_assets['gia_tri'].sum():,.0f} đ")
                 c3.metric("Cần bảo trì", len(df_assets[df_assets['tinh_trang']=="Cần bảo trì"]))
                 
-                fig = px.pie(df_assets, names='tinh_trang', title="Tỷ lệ tình trạng")
+                fig = px.pie(df_assets, names='tinh_trang', title="Phân bổ tình trạng tài sản", hole=0.3)
                 st.plotly_chart(fig, use_container_width=True)
             else:
-                st.info("Chưa có dữ liệu.")
+                st.info("Chưa có dữ liệu để thống kê.")
 
         elif choice == "📋 Danh sách":
-            st.title("Danh mục tài sản")
+            st.title("📋 Danh mục tài sản")
             df_assets = pd.read_sql_query("SELECT * FROM assets", conn)
             st.dataframe(df_assets, use_container_width=True)
 
         elif choice == "🔧 Bảo trì & QR":
+            st.title("🔧 Quản lý Bảo trì & QR Code")
             df_assets = pd.read_sql_query("SELECT id, ten_tai_san FROM assets", conn)
             if not df_assets.empty:
-                t1, t2 = st.tabs(["Ghi chú bảo trì", "In mã QR"])
+                t1, t2 = st.tabs(["Ghi chú bảo trì", "Tạo mã QR"])
                 with t1:
                     sel = st.selectbox("Chọn tài sản", [f"{r['id']}-{r['ten_tai_san']}" for _,r in df_assets.iterrows()])
-                    with st.form("maint"):
-                        nd = st.text_area("Nội dung sửa chữa")
-                        cp = st.number_input("Chi phí", min_value=0.0)
-                        if st.form_submit_button("Lưu"):
+                    with st.form("maint_form"):
+                        nd = st.text_area("Nội dung sửa chữa/bảo trì")
+                        cp = st.number_input("Chi phí (VNĐ)", min_value=0.0)
+                        if st.form_submit_button("Lưu lịch sử"):
                             conn.cursor().execute("INSERT INTO maintenance (asset_id, ngay_thuc_hien, noi_dung, chi_phi) VALUES (?,?,?,?)",
                                                   (sel.split('-')[0], datetime.now().date(), nd, cp))
                             conn.commit()
-                            st.success("Đã lưu!")
+                            st.success("Đã ghi nhận lịch sử bảo trì!")
                 with t2:
-                    sel_qr = st.selectbox("Chọn tài sản in mã", [f"{r['id']}-{r['ten_tai_san']}" for _,r in df_assets.iterrows()])
-                    # Thay URL bằng địa chỉ thực tế khi deploy
+                    sel_qr = st.selectbox("Chọn tài sản cần in mã", [f"{r['id']}-{r['ten_tai_san']}" for _,r in df_assets.iterrows()])
+                    # URL này sẽ tự động nhận diện khi deploy lên Streamlit Cloud
                     url = f"https://quan-ly-tai-san.streamlit.app/?id={sel_qr.split('-')[0]}"
-                    st.image(generate_qr(url), caption=f"Mã QR của tài sản ID: {sel_qr.split('-')[0]}")
+                    st.image(generate_qr(url), caption=f"QR Code ID: {sel_qr.split('-')[0]}")
+                    st.info("Mẹo: Bạn có thể chuột phải vào ảnh QR để lưu về máy và in dán lên tài sản.")
             else:
-                st.warning("Chưa có tài sản nào.")
+                st.warning("Vui lòng thêm tài sản trước.")
 
         elif choice == "⚙️ Hệ thống":
+            st.title("⚙️ Quản lý hệ thống")
             st.subheader("Thêm tài sản mới")
             with st.form("add_asset"):
-                ten = st.text_input("Tên tài sản")
-                loai = st.selectbox("Loại", ["Điện tử", "Nội thất", "Khác"])
-                gia = st.number_input("Giá trị", min_value=0.0)
-                tt = st.selectbox("Tình trạng", ["Mới", "Tốt", "Cần bảo trì", "Hỏng"])
-                vt = st.text_input("Vị trí")
-                if st.form_submit_button("Thêm"):
+                col1, col2 = st.columns(2)
+                with col1:
+                    ten = st.text_input("Tên tài sản")
+                    loai = st.selectbox("Loại tài sản", ["Điện tử", "Nội thất", "Văn phòng phẩm", "Khác"])
+                    gia = st.number_input("Giá trị (VNĐ)", min_value=0.0)
+                with col2:
+                    tt = st.selectbox("Tình trạng", ["Mới", "Tốt", "Cần bảo trì", "Hỏng"])
+                    vt = st.text_input("Vị trí/Phòng ban")
+                if st.form_submit_button("Thêm tài sản"):
                     conn.cursor().execute("INSERT INTO assets (ten_tai_san, loai_tai_san, gia_tri, tinh_trang, vi_tri) VALUES (?,?,?,?,?)",
                                           (ten, loai, gia, tt, vt))
                     conn.commit()
-                    st.success("Đã thêm thành công!")
+                    st.success("Đã thêm tài sản mới vào hệ thống!")
         
         conn.close()
 
     elif st.session_state["authentication_status"] is False:
-        st.error('Sai tài khoản hoặc mật khẩu')
+        st.error('Tên đăng nhập hoặc mật khẩu không chính xác.')
     elif st.session_state["authentication_status"] is None:
-        st.warning('Vui lòng đăng nhập để sử dụng hệ thống.')
+        st.info('Vui lòng nhập thông tin đăng nhập để tiếp tục.')
 
 if __name__ == '__main__':
     main()
