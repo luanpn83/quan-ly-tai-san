@@ -36,9 +36,16 @@ def fetch_users_config():
     conn = sqlite3.connect('he_thong_quan_ly.db')
     df = pd.read_sql_query("SELECT * FROM users", conn)
     conn.close()
-    config = {'usernames': {}}
+    
+    # Cấu trúc phải có key 'usernames' ở ngoài cùng
+    config = {'usernames': {}} 
+    
     for _, row in df.iterrows():
-        config['usernames'][row['username']] = {'name': row['name'], 'password': row['password'], 'role': row['role']}
+        config['usernames'][row['username']] = {
+            'name': row['name'],
+            'password': row['password'],
+            'role': row['role']
+        }
     return config
 
 def generate_qr(url):
@@ -188,6 +195,7 @@ def main():
 if __name__ == '__main__':
 
     main()
+
 
 
 
